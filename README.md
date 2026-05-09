@@ -1,11 +1,11 @@
-# Multi-OS Collaboration System
+# AXO: Multi-OS Collaboration System
 
-A "magic" low-latency, team collaboration tool. No manual setup or IP sharing required.
+AXO is a "magic" low-latency, team collaboration tool. No manual setup or IP sharing required.
 
 ## Features
-- **Magic Discovery:** Multiple users enter the same Room ID and connect automatically.
+- **AXO Magic Discovery:** Multiple users enter the same Room ID and connect automatically.
 - **Global Right-Click:** Right-click any running software UI on your desktop to instantly share it with the team.
-- **Voice Chat:** Seamless, low-latency audio for all connected members.
+- **AXO Audio:** Seamless, low-latency audio for all connected members.
 - **Window-Level Sharing:** Stream specific app UIs, not your whole screen.
 - **Remote Control:** Let team members interact with your shared software.
 

@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+websockets
+aiortc
+mss
+pygetwindow
+opencv-python
+pywin32
+sounddevice
+pyautogui
+av

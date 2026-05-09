@@ -1,30 +1,45 @@
-import asyncio
-import sys
-import os
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import json
+import logging
 
-# Add the current directory to sys.path to ensure 'src' is found
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+logging.basicConfig(level=logging.INFO)
 
-from src.gui import launch_ui
+app = FastAPI(title="AXO Signaling Server")
 
-def main():
-    print("========================================")
-    print("    MULTI-OS COLLABORATION SYSTEM")
-    print("========================================")
+# room_id -> [list of websockets]
+ROOMS: dict[str, list[WebSocket]] = {}
+
+@app.get("/")
+async def root():
+    return {"status": "AXO Signaling Active", "rooms": list(ROOMS.keys())}
+
+@app.websocket("/ws/{room_id}")
+async def websocket_endpoint(websocket: WebSocket, room_id: str):
+    await websocket.accept()
     
-    room_id = input("\nEnter Room ID to join/create (default: 'office'): ").strip()
-    if not room_id:
-        room_id = "office"
-        
-    print(f"\n[*] Initializing all features for Room: {room_id}")
-    print("[*] Launching Graphical Dashboard...")
+    if room_id not in ROOMS:
+        ROOMS[room_id] = []
+    ROOMS[room_id].append(websocket)
+    logging.info(f"Peer joined AXO room: {room_id}")
     
+    # Notify others that a peer joined
+    for client in ROOMS[room_id]:
+        if client != websocket:
+            try:
+                await client.send_json({"type": "peer_joined"})
+            except:
+                pass
+
     try:
-        launch_ui(room_id)
-    except KeyboardInterrupt:
-        print("\n[!] System shutting down...")
-    except Exception as e:
-        print(f"\n[!] Error launching system: {e}")
-
-if __name__ == "__main__":
-    main()
+        while True:
+            data = await websocket.receive_json()
+            # Relay signals (offer, answer, ice)
+            for client in ROOMS[room_id]:
+                if client != websocket:
+                    try:
+                        await client.send_json(data)
+                    except:
+                        continue
+    except WebSocketDisconnect:
+        ROOMS[room_id].remove(websocket)
+        logging.info(f"Peer left AXO room: {room_id}")
