@@ -10,15 +10,14 @@ from aiortc import (
     VideoStreamTrack,
     AudioStreamTrack,
 )
-from aiortc.contrib.media import MediaRelay
 from .streaming import WindowCaptureTrack
 from .remote_control import RemoteControl
 import cv2
 import numpy as np
 import websockets
-from .local_discovery import LocalDiscovery
 
-relay = MediaRelay()
+# We'll avoid the global relay for now to simplify the connection
+# relay = MediaRelay()
 
 class MultiOSNode:
     def __init__(self, room_id, signaling_url="ws://89.58.31.246:8888"):
@@ -31,6 +30,7 @@ class MultiOSNode:
         self.rc = RemoteControl()
         self.allow_remote_control = False
         self.current_shared_window = None
+        self.pending_candidates = [] # Store candidates until remote desc is set
         
         self._init_pc()
 
@@ -39,13 +39,13 @@ class MultiOSNode:
             try: asyncio.ensure_future(self.pc.close())
             except: pass
             
+        # Standard configuration with STUN
         config = RTCConfiguration(iceServers=[
             RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
-            RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
-            RTCIceServer(urls=["stun:stun2.l.google.com:19302"]),
-            RTCIceServer(urls=["stun:stun3.l.google.com:19302"])
+            RTCIceServer(urls=["stun:stun1.l.google.com:19302"])
         ])
         self.pc = RTCPeerConnection(configuration=config)
+        self.pending_candidates = []
         
         @self.pc.on("icecandidate")
         async def on_icecandidate(candidate):
@@ -64,29 +64,21 @@ class MultiOSNode:
         @self.pc.on("connectionstatechange")
         async def on_connectionstatechange():
             print(f"[*] AXO Connection State: {self.pc.connectionState}")
-            if self.pc.connectionState in ["failed", "closed"]:
-                print("[!] Connection lost. Attempting auto-recovery...")
-                await self.reconnect()
+            if self.pc.connectionState == "failed":
+                print("[!] Connection failed. Check firewall.")
 
     async def connect(self):
         try:
             print(f"[*] Connecting to server: {self.signaling_url}")
             self.ws = await websockets.connect(self.signaling_url)
             await self.ws.send(json.dumps({"type": "join", "room_id": self.room_id}))
-            print("[+] Joined room successfully.")
+            print("[+] Joined room.")
             asyncio.ensure_future(self._signaling_loop())
         except Exception as e:
-            print(f"[!] Signaling failed: {e}")
-
-    async def reconnect(self):
-        self._init_pc()
-        # Re-add existing shared window if any
-        if self.current_shared_window:
-            self.add_window_track(self.current_shared_window)
-        await self._negotiate()
+            print(f"[!] Signaling connection failed: {e}")
 
     async def _negotiate(self):
-        if not self.pc or self.pc.connectionState == "closed":
+        if self.pc.connectionState == "closed":
             self._init_pc()
             
         try:
@@ -105,10 +97,17 @@ class MultiOSNode:
         try:
             async for message in self.ws:
                 data = json.loads(message)
+                
                 if data["type"] == "peer_joined":
                     await self._negotiate()
+                    
                 elif data["type"] == "offer":
                     await self.pc.setRemoteDescription(RTCSessionDescription(sdp=data["sdp"], type="offer"))
+                    # Now we can add pending candidates
+                    for cand in self.pending_candidates:
+                        await self.pc.addIceCandidate(cand)
+                    self.pending_candidates = []
+                    
                     answer = await self.pc.createAnswer()
                     await self.pc.setLocalDescription(answer)
                     await self.ws.send(json.dumps({
@@ -116,29 +115,42 @@ class MultiOSNode:
                         "sdp": self.pc.localDescription.sdp,
                         "room_id": self.room_id
                     }))
+                    
                 elif data["type"] == "answer":
                     await self.pc.setRemoteDescription(RTCSessionDescription(sdp=data["sdp"], type="answer"))
+                    # Now we can add pending candidates
+                    for cand in self.pending_candidates:
+                        await self.pc.addIceCandidate(cand)
+                    self.pending_candidates = []
+                    
                 elif data["type"] == "ice" and data.get("candidate"):
-                    cand = data["candidate"]
+                    cand_data = data["candidate"]
                     candidate = RTCIceCandidate(
-                        candidate=cand["candidate"],
-                        sdpMid=cand["sdpMid"],
-                        sdpMLineIndex=cand["sdpMLineIndex"]
+                        candidate=cand_data["candidate"],
+                        sdpMid=cand_data["sdpMid"],
+                        sdpMLineIndex=cand_data["sdpMLineIndex"]
                     )
-                    await self.pc.addIceCandidate(candidate)
+                    
+                    if self.pc.remoteDescription:
+                        try:
+                            await self.pc.addIceCandidate(candidate)
+                        except Exception as e:
+                            # Ignore specific aiortc index errors
+                            if "list.index(x)" not in str(e):
+                                print(f"ICE Add Error: {e}")
+                    else:
+                        self.pending_candidates.append(candidate)
+                        
         except Exception as e:
-            print(f"Signaling Loop Error: {e}")
+            if "connection closed" not in str(e).lower():
+                print(f"Signaling Loop Error: {e}")
 
     def add_window_track(self, window_title):
         self.current_shared_window = window_title
-        
-        if self.pc.connectionState == "closed":
-            print("[*] Connection was closed. Re-opening for share...")
-            self._init_pc()
-
         try:
             track = WindowCaptureTrack(window_title)
-            self.pc.addTrack(relay.subscribe(track))
+            # Add track directly to PC (no relay) for maximum stability
+            self.pc.addTrack(track)
             if self.ws:
                 asyncio.ensure_future(self._negotiate())
         except Exception as e:
