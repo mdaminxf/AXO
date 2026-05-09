@@ -19,7 +19,7 @@ relay = MediaRelay()
 import websockets
 
 class MultiOSNode:
-    def __init__(self, room_id, signaling_url="ws://localhost:8888"):
+    def __init__(self, room_id, signaling_url="ws://89.58.31.246:8888"):
         self.room_id = room_id
         self.signaling_url = signaling_url
         self.pc = RTCPeerConnection()

@@ -1,45 +1,30 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-import json
-import logging
+import asyncio
+import sys
+import os
 
-logging.basicConfig(level=logging.INFO)
+# Ensure 'src' is in the path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-app = FastAPI(title="AXO Signaling Server")
+from src.gui import launch_ui
 
-# room_id -> [list of websockets]
-ROOMS: dict[str, list[WebSocket]] = {}
-
-@app.get("/")
-async def root():
-    return {"status": "AXO Signaling Active", "rooms": list(ROOMS.keys())}
-
-@app.websocket("/ws/{room_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str):
-    await websocket.accept()
+def main():
+    print("========================================")
+    print("         AXO COLLABORATION SYSTEM")
+    print("========================================")
     
-    if room_id not in ROOMS:
-        ROOMS[room_id] = []
-    ROOMS[room_id].append(websocket)
-    logging.info(f"Peer joined AXO room: {room_id}")
+    room_id = input("\nEnter Room ID to join/create (default: 'office'): ").strip()
+    if not room_id:
+        room_id = "office"
+        
+    print(f"\n[*] Connecting to AXO Global Server (89.58.31.246)...")
+    print("[*] Launching Dashboard...")
     
-    # Notify others that a peer joined
-    for client in ROOMS[room_id]:
-        if client != websocket:
-            try:
-                await client.send_json({"type": "peer_joined"})
-            except:
-                pass
-
     try:
-        while True:
-            data = await websocket.receive_json()
-            # Relay signals (offer, answer, ice)
-            for client in ROOMS[room_id]:
-                if client != websocket:
-                    try:
-                        await client.send_json(data)
-                    except:
-                        continue
-    except WebSocketDisconnect:
-        ROOMS[room_id].remove(websocket)
-        logging.info(f"Peer left AXO room: {room_id}")
+        launch_ui(room_id)
+    except KeyboardInterrupt:
+        print("\n[!] System shutting down...")
+    except Exception as e:
+        print(f"\n[!] Error launching AXO: {e}")
+
+if __name__ == "__main__":
+    main()

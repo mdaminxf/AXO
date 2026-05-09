@@ -6,6 +6,7 @@ from .network import MultiOSNode
 from .streaming import list_windows
 from .audio import MicrophoneStreamTrack
 import cv2
+import win32gui
 
 from .os_hooks import GlobalRightClickHook
 
@@ -33,21 +34,44 @@ class MultiOS_UI:
         # Auto-connect to signaling server
         self._run_async(self.node.connect())
 
+    def _setup_style(self):
+        style = ttk.Style()
+        style.configure("TButton", padding=6)
+        style.configure("Status.TLabel", font=("Segoe UI", 9, "italic"))
+
     def _on_right_click(self, window_title):
         # This runs in the hook thread, so we must schedule on the main thread
-        self.root.after(0, lambda: self._handle_right_click_discovery(window_title))
+        self.root.after(0, lambda: self._show_floating_share_button(window_title))
 
-    def _handle_right_click_discovery(self, window_title):
-        if messagebox.askyesno("Share App?", f"Do you want to share '{window_title}' with the room?"):
-            self.node.add_window_track(window_title)
+    def _show_floating_share_button(self, window_title):
+        # Create a small, borderless window near the cursor
+        x, y = win32gui.GetCursorPos()
+        
+        btn_win = tk.Toplevel(self.root)
+        btn_win.overrideredirect(True) # Remove borders
+        btn_win.attributes("-topmost", True) # Stay on top
+        btn_win.geometry(f"+{x+10}+{y+10}") # Near cursor
+        
+        def share():
+            # Run this on the loop thread to avoid asyncio loop mismatch
+            self.loop.call_soon_threadsafe(self.node.add_window_track, window_title)
             self.status_label.config(text=f"Status: Sharing {window_title}")
+            btn_win.destroy()
+
+        btn = tk.Button(btn_win, text=f"Share '{window_title}' to AXO", 
+                        bg="#0078d7", fg="white", font=("Segoe UI", 9, "bold"),
+                        command=share, relief="flat", padx=10, pady=5)
+        btn.pack()
+
+        # Auto-destroy after 3 seconds if not clicked
+        self.root.after(3000, lambda: btn_win.destroy() if btn_win.winfo_exists() else None)
 
     def _create_widgets(self):
         # Info Section
         info_frame = ttk.Frame(self.root, padding=10)
         info_frame.pack(fill="x")
         ttk.Label(info_frame, text=f"Active Room: {self.room_id}", font=("Segoe UI", 12, "bold")).pack()
-        ttk.Label(info_frame, text="Tip: Right-click any app to share it instantly!").pack()
+        ttk.Label(info_frame, text="AXO Magic: Right-click any app to share it!", foreground="#0078d7").pack()
         
         # Audio Section
         audio_frame = ttk.LabelFrame(self.root, text="Audio", padding=10)
@@ -56,16 +80,12 @@ class MultiOS_UI:
         self.mic_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(audio_frame, text="Microphone Enabled", variable=self.mic_var, command=self.toggle_mic).pack()
         
-        # Screen Sharing Section
-        share_frame = ttk.LabelFrame(self.root, text="Software Sharing", padding=10)
+        # Status Section (Manual selection removed for 'Magic' experience)
+        share_frame = ttk.LabelFrame(self.root, text="System Status", padding=10)
         share_frame.pack(fill="x", padx=10, pady=5)
         
-        self.window_list = ttk.Combobox(share_frame, state="readonly")
-        self.window_list.pack(fill="x", pady=5)
-        self.refresh_windows()
-        
-        ttk.Button(share_frame, text="Refresh Windows", command=self.refresh_windows).pack(side="left", padx=5)
-        ttk.Button(share_frame, text="Share Selected", command=self.share_window).pack(side="left", padx=5)
+        self.status_label = ttk.Label(share_frame, text="Status: Connected to Server", style="Status.TLabel")
+        self.status_label.pack()
         
         # Remote Control Section
         rc_frame = ttk.LabelFrame(self.root, text="Permissions", padding=10)
@@ -73,10 +93,6 @@ class MultiOS_UI:
         
         self.rc_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(rc_frame, text="Allow Remote Control", variable=self.rc_var, command=self.toggle_rc).pack()
-        
-        # Status
-        self.status_label = ttk.Label(self.root, text="Status: Idle", style="Status.TLabel")
-        self.status_label.pack(side="bottom", anchor="w", padx=10, pady=5)
 
     def _run_async_loop(self):
         asyncio.set_event_loop(self.loop)
