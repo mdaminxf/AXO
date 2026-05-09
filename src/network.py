@@ -24,19 +24,29 @@ class MultiOSNode:
     def __init__(self, room_id, signaling_url="ws://89.58.31.246:8888"):
         self.room_id = room_id
         self.signaling_url = signaling_url
-        
-        config = RTCConfiguration(iceServers=[
-            RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
-            RTCIceServer(urls=["stun:stun1.l.google.com:19302"])
-        ])
-        self.pc = RTCPeerConnection(configuration=config)
-        
+        self.pc = None
+        self.ws = None
         self.data_channel = None
         self.on_message_callback = None
         self.rc = RemoteControl()
         self.allow_remote_control = False
-        self.ws = None
+        self.current_shared_window = None
+        
+        self._init_pc()
 
+    def _init_pc(self):
+        if self.pc:
+            try: asyncio.ensure_future(self.pc.close())
+            except: pass
+            
+        config = RTCConfiguration(iceServers=[
+            RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+            RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
+            RTCIceServer(urls=["stun:stun2.l.google.com:19302"]),
+            RTCIceServer(urls=["stun:stun3.l.google.com:19302"])
+        ])
+        self.pc = RTCPeerConnection(configuration=config)
+        
         @self.pc.on("icecandidate")
         async def on_icecandidate(candidate):
             if candidate and self.ws:
@@ -49,37 +59,45 @@ class MultiOSNode:
                             "sdpMLineIndex": candidate.sdpMLineIndex,
                         }
                     }))
-                except:
-                    pass
+                except: pass
 
         @self.pc.on("connectionstatechange")
         async def on_connectionstatechange():
             print(f"[*] AXO Connection State: {self.pc.connectionState}")
-            if self.pc.connectionState == "failed":
-                print("[!] ICE Connection Failed. Possible Firewall/NAT issue.")
+            if self.pc.connectionState in ["failed", "closed"]:
+                print("[!] Connection lost. Attempting auto-recovery...")
+                await self.reconnect()
 
     async def connect(self):
         try:
-            print(f"[*] Attempting VPS connection: {self.signaling_url}")
-            self.ws = await asyncio.wait_for(websockets.connect(self.signaling_url), timeout=5)
+            print(f"[*] Connecting to server: {self.signaling_url}")
+            self.ws = await websockets.connect(self.signaling_url)
             await self.ws.send(json.dumps({"type": "join", "room_id": self.room_id}))
-            print("[+] Connected to AXO Signaling Server.")
+            print("[+] Joined room successfully.")
             asyncio.ensure_future(self._signaling_loop())
         except Exception as e:
-            print(f"[!] Signaling connection failed: {e}")
+            print(f"[!] Signaling failed: {e}")
+
+    async def reconnect(self):
+        self._init_pc()
+        # Re-add existing shared window if any
+        if self.current_shared_window:
+            self.add_window_track(self.current_shared_window)
+        await self._negotiate()
 
     async def _negotiate(self):
-        if self.pc.connectionState == "closed":
-            return
+        if not self.pc or self.pc.connectionState == "closed":
+            self._init_pc()
             
         try:
             offer = await self.pc.createOffer()
             await self.pc.setLocalDescription(offer)
-            await self.ws.send(json.dumps({
-                "type": "offer",
-                "sdp": self.pc.localDescription.sdp,
-                "room_id": self.room_id
-            }))
+            if self.ws:
+                await self.ws.send(json.dumps({
+                    "type": "offer",
+                    "sdp": self.pc.localDescription.sdp,
+                    "room_id": self.room_id
+                }))
         except Exception as e:
             print(f"Negotiation Error: {e}")
 
@@ -112,9 +130,11 @@ class MultiOSNode:
             print(f"Signaling Loop Error: {e}")
 
     def add_window_track(self, window_title):
+        self.current_shared_window = window_title
+        
         if self.pc.connectionState == "closed":
-            print("[!] Cannot share: Connection is closed.")
-            return
+            print("[*] Connection was closed. Re-opening for share...")
+            self._init_pc()
 
         try:
             track = WindowCaptureTrack(window_title)
@@ -124,11 +144,6 @@ class MultiOSNode:
         except Exception as e:
             print(f"Error sharing window: {e}")
 
-    @property
-    def connection_state(self):
-        return self.pc.connectionState
-
     async def close(self):
-        await self.pc.close()
-        if self.ws:
-            await self.ws.close()
+        if self.pc: await self.pc.close()
+        if self.ws: await self.ws.close()
