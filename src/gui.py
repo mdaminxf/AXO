@@ -11,13 +11,15 @@ import win32gui
 from .os_hooks import GlobalRightClickHook
 
 class MultiOS_UI:
-    def __init__(self, root, room_id="default"):
+    def __init__(self, root, host_ip="localhost"):
         self.root = root
-        self.root.title(f"Multi-OS Collaboration - Room: {room_id}")
+        self.root.title(f"AXO Collaboration - Host: {host_ip}")
         self.root.geometry("400x550")
         
-        self.room_id = room_id
-        self.node = MultiOSNode(room_id)
+        self.host_ip = host_ip
+        # Use default room_id for simplicity since we are now IP-focused
+        signaling_url = f"ws://{host_ip}:8888"
+        self.node = MultiOSNode(room_id="default", signaling_url=signaling_url)
         self.loop = asyncio.new_event_loop()
         
         # Right Click Hook
@@ -70,7 +72,7 @@ class MultiOS_UI:
         # Info Section
         info_frame = ttk.Frame(self.root, padding=10)
         info_frame.pack(fill="x")
-        ttk.Label(info_frame, text=f"Active Room: {self.room_id}", font=("Segoe UI", 12, "bold")).pack()
+        ttk.Label(info_frame, text=f"Connected to: {self.host_ip}", font=("Segoe UI", 12, "bold")).pack()
         ttk.Label(info_frame, text="AXO Magic: Right-click any app to share it!", foreground="#0078d7").pack()
         
         # Audio Section
@@ -103,9 +105,9 @@ class MultiOS_UI:
 
     def refresh_windows(self):
         windows = list_windows()
-        self.window_list['values'] = windows
-        if windows:
-            self.window_list.current(0)
+        # Note: window_list was removed in the magic update, but this method stayed.
+        # Keeping it for now as a utility or for future use.
+        pass
 
     def toggle_mic(self):
         # Implementation to mute/unmute
@@ -117,42 +119,19 @@ class MultiOS_UI:
         self.status_label.config(text=f"Status: Remote Control {state}")
 
     def share_window(self):
-        win_title = self.window_list.get()
-        if win_title:
-            self.node.add_window_track(win_title)
-            self.status_label.config(text=f"Status: Sharing {win_title}")
+        # This was for manual sharing, replaced by magic OS hook.
+        pass
 
     def host_session(self):
-        async def _host():
-            offer = await self.node.create_offer()
-            # In a real app, this would use a signaling server
-            # For this prototype, we show a popup to copy SDP
-            self.root.clipboard_clear()
-            self.root.clipboard_append(offer.sdp)
-            messagebox.showinfo("Offer Created", "Offer SDP copied to clipboard. Send it to your peer.")
-            
-            # Simple dialog to get answer
-            answer_sdp = self._get_input_dialog("Join Session", "Paste peer's Answer SDP:")
-            if answer_sdp:
-                await self.node.handle_answer(answer_sdp)
-                self.status_label.config(text="Status: Connected")
-
-        self._run_async(_host())
+        # Auto-handled by IP connection now
+        pass
 
     def join_session(self):
-        async def _join():
-            offer_sdp = self._get_input_dialog("Join Session", "Paste peer's Offer SDP:")
-            if offer_sdp:
-                answer = await self.node.handle_offer(offer_sdp)
-                self.root.clipboard_clear()
-                self.root.clipboard_append(answer.sdp)
-                messagebox.showinfo("Answer Created", "Answer SDP copied to clipboard. Send it back to the host.")
-                self.status_label.config(text="Status: Connected")
-
-        self._run_async(_join())
+        # Auto-handled by IP connection now
+        pass
 
     def _get_input_dialog(self, title, prompt):
-        # Very simple input dialog for SDP
+        # Kept for utility if needed
         dialog = tk.Toplevel(self.root)
         dialog.title(title)
         ttk.Label(dialog, text=prompt).pack(padx=10, pady=5)
@@ -168,7 +147,7 @@ class MultiOS_UI:
         self.root.wait_window(dialog)
         return result[0]
 
-def launch_ui(room_id="default"):
+def launch_ui(host_ip="localhost"):
     root = tk.Tk()
-    app = MultiOS_UI(root, room_id)
+    app = MultiOS_UI(root, host_ip)
     root.mainloop()

@@ -12,15 +12,16 @@ def main():
     print("         AXO COLLABORATION SYSTEM")
     print("========================================")
     
-    room_id = input("\nEnter Room ID to join/create (default: 'office'): ").strip()
-    if not room_id:
-        room_id = "office"
+    host_ip = input("\nEnter Host IP (e.g. 89.58.31.246 or 192.168.x.x) [default: localhost]: ").strip()
+    if not host_ip:
+        host_ip = "localhost"
         
-    print(f"\n[*] Connecting to AXO Global Server (89.58.31.246)...")
+    print(f"\n[*] Connecting to AXO Server at {host_ip}...")
     print("[*] Launching Dashboard...")
     
     try:
-        launch_ui(room_id)
+        # Pass the host_ip to the UI
+        launch_ui(host_ip=host_ip)
     except KeyboardInterrupt:
         print("\n[!] System shutting down...")
     except Exception as e:

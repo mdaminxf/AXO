@@ -8,7 +8,8 @@ logging.basicConfig(level=logging.INFO)
 # room_id -> [list of clients]
 ROOMS = {}
 
-async def handler(websocket, path):
+# Updated for compatibility with newer websockets library versions
+async def handler(websocket):
     room_id = None
     client_id = str(id(websocket))
     
